@@ -13,7 +13,8 @@
 #      MUST sit in front. NEVER deploy without the basic-auth middleware.
 #      See Maven's infra/coolify-bootstrap.md Step 7.
 #
-# Upstream security warnings still apply — comments preserved inline.
+# `expose:` (not `ports:`) is used so containers are routable on the Docker
+# network without publishing to host (avoids host port conflicts with Coolify).
 #
 services:
   gateway:
@@ -22,13 +23,11 @@ services:
     restart: unless-stopped
     volumes:
       - hermes_data:/opt/data
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
-      # Maven: OpenAI-compatible API server ENABLED, bearer-token auth required.
-      # API_SERVER_KEY is set in Coolify env vars (encrypted).
       - API_SERVER_HOST=0.0.0.0
       - API_SERVER_KEY=${API_SERVER_KEY}
       # Microsoft Teams — uncomment and fill in to enable Teams gateway.
@@ -51,8 +50,8 @@ services:
       - gateway
     volumes:
       - hermes_data:/opt/data
-    ports:
-      - "9119:9119"
+    expose:
+      - "9119"
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
