@@ -44,6 +44,24 @@ services:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
     command: ["dashboard", "--host", "0.0.0.0", "--port", "9119", "--no-open", "--insecure"]
+    # Self-contained Traefik labels for agent.aicmo.in with basic auth.
+    # Leave Coolify's "Domains for dashboard" field EMPTY — these labels
+    # define the router themselves to avoid conflicting with Coolify's
+    # auto-generated ones. The htpasswd hash escapes `$` as `$$` for
+    # Docker Compose. Regenerate per-customer in M2's template.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.maven-self-auth.basicauth.users=maven-self:$$2y$$05$$/Y9mC9Mdhiu7iAHz1NPvCORBe2dHnT.l.yjCXfi6osSy//3.ST4oa"
+      - "traefik.http.routers.maven-self-dashboard-http.entrypoints=http"
+      - "traefik.http.routers.maven-self-dashboard-http.rule=Host(`agent.aicmo.in`)"
+      - "traefik.http.routers.maven-self-dashboard-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.maven-self-dashboard-https.entrypoints=https"
+      - "traefik.http.routers.maven-self-dashboard-https.rule=Host(`agent.aicmo.in`)"
+      - "traefik.http.routers.maven-self-dashboard-https.tls=true"
+      - "traefik.http.routers.maven-self-dashboard-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.maven-self-dashboard-https.middlewares=gzip,maven-self-auth"
+      - "traefik.http.routers.maven-self-dashboard-https.service=maven-self-dashboard-svc"
+      - "traefik.http.services.maven-self-dashboard-svc.loadbalancer.server.port=9119"
 
 volumes:
   hermes_data:
