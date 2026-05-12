@@ -47,11 +47,16 @@ services:
     # Self-contained Traefik labels for agent.aicmo.in with basic auth.
     # Leave Coolify's "Domains for dashboard" field EMPTY — these labels
     # define the router themselves to avoid conflicting with Coolify's
-    # auto-generated ones. The htpasswd hash escapes `$` as `$$` for
-    # Docker Compose. Regenerate per-customer in M2's template.
+    # auto-generated ones.
+    #
+    # NOTE on the htpasswd `$`: Coolify v4 passes label values through to
+    # Docker as-is without running docker-compose's `$$ → $` interpolation
+    # step, so we write single `$` here (NOT `$$`). If you ever run this
+    # compose via plain `docker compose up`, you'd need to double them.
+    # Regenerate the hash per-customer in M2's template.
     labels:
       - "traefik.enable=true"
-      - "traefik.http.middlewares.maven-self-auth.basicauth.users=maven-self:$$2y$$05$$/Y9mC9Mdhiu7iAHz1NPvCORBe2dHnT.l.yjCXfi6osSy//3.ST4oa"
+      - "traefik.http.middlewares.maven-self-auth.basicauth.users=maven-self:$2y$05$/Y9mC9Mdhiu7iAHz1NPvCORBe2dHnT.l.yjCXfi6osSy//3.ST4oa"
       - "traefik.http.routers.maven-self-dashboard-http.entrypoints=http"
       - "traefik.http.routers.maven-self-dashboard-http.rule=Host(`agent.aicmo.in`)"
       - "traefik.http.routers.maven-self-dashboard-http.middlewares=redirect-to-https"
