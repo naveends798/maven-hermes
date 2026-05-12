@@ -9,8 +9,9 @@
 #      Coolify manages volume lifecycle per customer.
 #   3. `container_name:` removed so Docker auto-generates unique names per
 #      Coolify project (avoids collisions across customer deployments).
-#   4. Dashboard binds 0.0.0.0 instead of 127.0.0.1 — Coolify+Traefik basic-auth
-#      MUST sit in front. NEVER deploy without the basic-auth middleware.
+#   4. Dashboard binds 0.0.0.0 with --insecure flag — Hermes's safety check
+#      blocks 0.0.0.0 binding unless --insecure is passed. Coolify+Traefik
+#      basic-auth MUST sit in front. NEVER deploy without the auth middleware.
 #      See Maven's infra/coolify-bootstrap.md Step 7.
 #
 # `expose:` (not `ports:`) is used so containers are routable on the Docker
@@ -55,10 +56,10 @@ services:
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
-    # Maven: dashboard binds 0.0.0.0 INTENTIONALLY.
-    # Coolify+Traefik basic-auth MUST be configured in front of the public domain.
-    # Never deploy this fork without the basic-auth middleware — see Maven's infra/coolify-bootstrap.md Step 7.
-    command: ["dashboard", "--host", "0.0.0.0", "--no-open"]
+    # Maven: --insecure is REQUIRED because Hermes refuses 0.0.0.0 binding
+    # without it. We satisfy "robust authentication" via Traefik basic-auth at
+    # the public domain. NEVER skip the basic-auth middleware in front.
+    command: ["dashboard", "--host", "0.0.0.0", "--port", "9119", "--no-open", "--insecure"]
 
 volumes:
   hermes_data:
