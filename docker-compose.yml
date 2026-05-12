@@ -1,54 +1,43 @@
 #
-# docker-compose.yml for Hermes Agent
+# docker-compose.yml — Maven fork of Hermes Agent
 #
-# Usage:
-#   HERMES_UID=$(id -u) HERMES_GID=$(id -g) docker compose up -d
+# This file diverges from upstream NousResearch/hermes-agent in four ways:
 #
-# Set HERMES_UID / HERMES_GID to the host user that owns ~/.hermes so
-# files created inside the container stay readable/writable on the host.
-# The entrypoint remaps the internal `hermes` user to these values via
-# usermod/groupmod + gosu.
+#   1. Bridge networking instead of `network_mode: host`, so multiple Hermes
+#      containers can coexist on one VPS for Maven's multi-tenant model.
+#   2. Named volume `hermes_data` instead of `~/.hermes` bind mount, so
+#      Coolify manages volume lifecycle per customer.
+#   3. `container_name:` removed so Docker auto-generates unique names per
+#      Coolify project (avoids collisions across customer deployments).
+#   4. Dashboard binds 0.0.0.0 instead of 127.0.0.1 — Coolify+Traefik basic-auth
+#      MUST sit in front. NEVER deploy without the basic-auth middleware.
+#      See Maven's infra/coolify-bootstrap.md Step 7.
 #
-# Security notes:
-#   - The dashboard service binds to 127.0.0.1 by default. It stores API
-#     keys; exposing it on LAN without auth is unsafe. If you want remote
-#     access, use an SSH tunnel or put it behind a reverse proxy that
-#     adds authentication — do NOT pass --insecure --host 0.0.0.0.
-#   - If you override entrypoint, keep /opt/hermes/docker/entrypoint.sh in
-#     the command chain. It drops root to the hermes user before gateway
-#     files such as gateway.lock are created.
-#   - The gateway's API server is off unless you uncomment API_SERVER_KEY
-#     and API_SERVER_HOST. See docs/user-guide/api-server.md before doing
-#     this on an internet-facing host.
+# Upstream security warnings still apply — comments preserved inline.
 #
 services:
   gateway:
     build: .
     image: hermes-agent
-    container_name: hermes
     restart: unless-stopped
-    network_mode: host
     volumes:
-      - ~/.hermes:/opt/data
+      - hermes_data:/opt/data
+    ports:
+      - "8000:8000"
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
-      # To expose the OpenAI-compatible API server beyond localhost,
-      # uncomment BOTH lines (API_SERVER_KEY is mandatory for auth):
-      # - API_SERVER_HOST=0.0.0.0
-      # - API_SERVER_KEY=${API_SERVER_KEY}
+      # Maven: OpenAI-compatible API server ENABLED, bearer-token auth required.
+      # API_SERVER_KEY is set in Coolify env vars (encrypted).
+      - API_SERVER_HOST=0.0.0.0
+      - API_SERVER_KEY=${API_SERVER_KEY}
       # Microsoft Teams — uncomment and fill in to enable Teams gateway.
-      # Register your bot at https://dev.botframework.com/ to get these values.
       # - TEAMS_CLIENT_ID=${TEAMS_CLIENT_ID}
       # - TEAMS_CLIENT_SECRET=${TEAMS_CLIENT_SECRET}
       # - TEAMS_TENANT_ID=${TEAMS_TENANT_ID}
       # - TEAMS_ALLOWED_USERS=${TEAMS_ALLOWED_USERS}
       # - TEAMS_PORT=${TEAMS_PORT:-3978}
-      # Google Chat — uncomment and fill in to enable the Google Chat gateway.
-      # See website/docs/user-guide/messaging/google_chat.md for the full setup.
-      # The SA JSON path must point to a file mounted into the container —
-      # add a volume entry above (e.g. ``- ~/.hermes/google-chat-sa.json:/secrets/google-chat-sa.json:ro``)
-      # then set GOOGLE_CHAT_SERVICE_ACCOUNT_JSON to that mount path.
+      # Google Chat — see upstream docker-compose.yml for full setup.
       # - GOOGLE_CHAT_PROJECT_ID=${GOOGLE_CHAT_PROJECT_ID}
       # - GOOGLE_CHAT_SUBSCRIPTION_NAME=${GOOGLE_CHAT_SUBSCRIPTION_NAME}
       # - GOOGLE_CHAT_SERVICE_ACCOUNT_JSON=${GOOGLE_CHAT_SERVICE_ACCOUNT_JSON}
@@ -57,15 +46,20 @@ services:
 
   dashboard:
     image: hermes-agent
-    container_name: hermes-dashboard
     restart: unless-stopped
-    network_mode: host
     depends_on:
       - gateway
     volumes:
-      - ~/.hermes:/opt/data
+      - hermes_data:/opt/data
+    ports:
+      - "9119:9119"
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
-    # Localhost-only. For remote access, tunnel via `ssh -L 9119:localhost:9119`.
-    command: ["dashboard", "--host", "127.0.0.1", "--no-open"]
+    # Maven: dashboard binds 0.0.0.0 INTENTIONALLY.
+    # Coolify+Traefik basic-auth MUST be configured in front of the public domain.
+    # Never deploy this fork without the basic-auth middleware — see Maven's infra/coolify-bootstrap.md Step 7.
+    command: ["dashboard", "--host", "0.0.0.0", "--no-open"]
+
+volumes:
+  hermes_data:
