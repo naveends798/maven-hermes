@@ -1,21 +1,16 @@
 #
 # docker-compose.yml — Maven fork of Hermes Agent
 #
-# This file diverges from upstream NousResearch/hermes-agent in four ways:
+# Diverges from upstream NousResearch/hermes-agent:
+#   1. Bridge networking instead of `network_mode: host` for multi-tenancy.
+#   2. Named volume `hermes_data` for Coolify-managed persistence.
+#   3. `container_name:` removed for unique per-project naming.
+#   4. Dashboard binds 0.0.0.0 with --insecure (Traefik basic-auth in front).
+#   5. API server explicitly ENABLED with API_SERVER_ENABLED=true.
 #
-#   1. Bridge networking instead of `network_mode: host`, so multiple Hermes
-#      containers can coexist on one VPS for Maven's multi-tenant model.
-#   2. Named volume `hermes_data` instead of `~/.hermes` bind mount, so
-#      Coolify manages volume lifecycle per customer.
-#   3. `container_name:` removed so Docker auto-generates unique names per
-#      Coolify project (avoids collisions across customer deployments).
-#   4. Dashboard binds 0.0.0.0 with --insecure flag — Hermes's safety check
-#      blocks 0.0.0.0 binding unless --insecure is passed. Coolify+Traefik
-#      basic-auth MUST sit in front. NEVER deploy without the auth middleware.
-#      See Maven's infra/coolify-bootstrap.md Step 7.
-#
-# `expose:` (not `ports:`) is used so containers are routable on the Docker
-# network without publishing to host (avoids host port conflicts with Coolify).
+# `expose:` (not `ports:`) so containers route via Docker network without
+# publishing to host (avoids host port conflicts with Coolify).
+# API server default port is 8642 per Hermes docs.
 #
 services:
   gateway:
@@ -25,10 +20,11 @@ services:
     volumes:
       - hermes_data:/opt/data
     expose:
-      - "8000"
+      - "8642"
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
+      - API_SERVER_ENABLED=true
       - API_SERVER_HOST=0.0.0.0
       - API_SERVER_KEY=${API_SERVER_KEY}
       # Microsoft Teams — uncomment and fill in to enable Teams gateway.
@@ -56,9 +52,6 @@ services:
     environment:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
-    # Maven: --insecure is REQUIRED because Hermes refuses 0.0.0.0 binding
-    # without it. We satisfy "robust authentication" via Traefik basic-auth at
-    # the public domain. NEVER skip the basic-auth middleware in front.
     command: ["dashboard", "--host", "0.0.0.0", "--port", "9119", "--no-open", "--insecure"]
 
 volumes:
