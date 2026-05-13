@@ -76,6 +76,23 @@ if [ ! -f "$HERMES_HOME/config.yaml" ]; then
     cp "$INSTALL_DIR/cli-config.yaml.example" "$HERMES_HOME/config.yaml"
 fi
 
+# Maven fork: if LITELLM_BASE_URL + LITELLM_KEY are set, point Hermes at our
+# LiteLLM gateway instead of the upstream openrouter default. Seeding is
+# idempotent — once config.yaml shows provider: "custom" we leave it alone,
+# so operators can still edit config.yaml by hand and survive a restart.
+if [ -f "$HERMES_HOME/config.yaml" ] && [ -n "$LITELLM_BASE_URL" ] && [ -n "$LITELLM_KEY" ]; then
+    if ! grep -q 'provider: "custom"' "$HERMES_HOME/config.yaml"; then
+        # Escape sed-special chars in URL + key (slashes, ampersands, backslashes).
+        BASE_URL_ESC=$(printf '%s' "$LITELLM_BASE_URL" | sed -e 's|[\\/&|]|\\&|g')
+        KEY_ESC=$(printf '%s' "$LITELLM_KEY" | sed -e 's|[\\/&|]|\\&|g')
+        sed -i 's|default: "anthropic/claude-opus-4.6"|default: "MiniMax-M2.7"|' "$HERMES_HOME/config.yaml"
+        sed -i 's|provider: "auto"|provider: "custom"|' "$HERMES_HOME/config.yaml"
+        sed -i "s|base_url: \"https://openrouter.ai/api/v1\"|base_url: \"$BASE_URL_ESC\"|" "$HERMES_HOME/config.yaml"
+        sed -i "s|# api_key: \"your-key-here\".*|api_key: \"$KEY_ESC\"|" "$HERMES_HOME/config.yaml"
+        echo "Maven: seeded config.yaml with LiteLLM coordinates"
+    fi
+fi
+
 # SOUL.md
 if [ ! -f "$HERMES_HOME/SOUL.md" ]; then
     cp "$INSTALL_DIR/docker/SOUL.md" "$HERMES_HOME/SOUL.md"
