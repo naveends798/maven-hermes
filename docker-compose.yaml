@@ -44,11 +44,17 @@
 #   6. Telegram credentials passed via env (set in Coolify).
 #   7. Self-contained Traefik labels for both services so Coolify's
 #      "Domains for ..." UI fields can stay EMPTY (avoids competing routers).
+#   8. Uses PRE-BUILT image from GHCR (no `build: .` here). The image is
+#      built once per maven-main commit by .github/workflows/maven-image.yml
+#      and pushed to ghcr.io/naveends798/maven-hermes:latest. This makes
+#      per-customer Coolify deploys a 30-second image pull instead of a
+#      10-15 minute Docker build on the VPS (which is unsustainable past
+#      1-2 simultaneous deploys — see Maven PROGRESS.md M2.5 entry).
 #
 services:
   gateway:
-    build: .
-    image: hermes-agent
+    image: ghcr.io/naveends798/maven-hermes:latest
+    pull_policy: always
     restart: unless-stopped
     volumes:
       - hermes_data:/opt/data
@@ -77,7 +83,8 @@ services:
       - "traefik.http.services.${CUSTOMER_SLUG}-api-svc.loadbalancer.server.port=8642"
 
   dashboard:
-    image: hermes-agent
+    image: ghcr.io/naveends798/maven-hermes:latest
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       - gateway
