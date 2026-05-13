@@ -1,16 +1,49 @@
 #
-# docker-compose.yml — Maven fork of Hermes Agent
+# docker-compose.yaml — Maven fork of Hermes Agent
+#
+# This compose is fully parameterized via ${VARS} so the same fork
+# branch (maven-main) can be deployed once per customer in Coolify,
+# with each customer's identity / domain / secrets supplied via that
+# project's Environment Variables panel.
+#
+# Required per-customer env vars (set in Coolify):
+#
+#   CUSTOMER_SLUG                lowercase ascii; prefixes all Traefik names
+#                                so customers don't collide on the same proxy.
+#                                e.g. "cust2", "acme-coaching", "maven-self"
+#
+#   CUSTOMER_DASHBOARD_HOST      hostname that serves Hermes's web dashboard
+#                                e.g. "cust2.aicmo.in" or "agent.aicmo.in"
+#
+#   CUSTOMER_API_HOST            hostname that serves Hermes's OpenAI-compat API
+#                                e.g. "api.cust2.aicmo.in" or "api.aicmo.in"
+#                                (separate from DASHBOARD_HOST to support both
+#                                 the "domain + api.<domain>" pattern AND the
+#                                 "peer subdomains" pattern maven-self uses.)
+#
+#   CUSTOMER_DASHBOARD_HTPASSWD  full htpasswd line "<user>:<bcrypt-hash>"
+#                                Generate with: htpasswd -nbB <user> <password>
+#                                IMPORTANT: write single `$` characters, not `$$`
+#                                — Coolify v4 passes labels to Docker as-is
+#                                without running docker-compose's $$->$ step.
+#
+#   API_SERVER_KEY               bearer token for the Hermes API. Generate
+#                                with: openssl rand -hex 32
+#
+#   TELEGRAM_BOT_TOKEN           optional; from @BotFather
+#   TELEGRAM_ALLOWED_USERS       optional; comma-separated Telegram user IDs
+#
+#   HERMES_UID, HERMES_GID       container uid/gid; default 10000
 #
 # Diverges from upstream NousResearch/hermes-agent:
 #   1. Bridge networking instead of `network_mode: host` for multi-tenancy.
 #   2. Named volume `hermes_data` for Coolify-managed persistence.
 #   3. `container_name:` removed for unique per-project naming.
-#   4. Dashboard binds 0.0.0.0 with --insecure (Traefik basic-auth eventually).
+#   4. Dashboard binds 0.0.0.0 with --insecure (Traefik basic-auth in front).
 #   5. API server explicitly ENABLED on default port 8642.
 #   6. Telegram credentials passed via env (set in Coolify).
-#
-# `expose:` (not `ports:`) so containers route via Docker network without
-# publishing to host.
+#   7. Self-contained Traefik labels for both services so Coolify's
+#      "Domains for ..." UI fields can stay EMPTY (avoids competing routers).
 #
 services:
   gateway:
@@ -30,6 +63,18 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
     command: ["gateway", "run"]
+    labels:
+      # API server on CUSTOMER_API_HOST — bearer-token gated, no basic auth.
+      - "traefik.enable=true"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-api-http.entrypoints=http"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-api-http.rule=Host(`${CUSTOMER_API_HOST}`)"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-api-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.entrypoints=https"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.rule=Host(`${CUSTOMER_API_HOST}`)"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.tls=true"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.service=${CUSTOMER_SLUG}-api-svc"
+      - "traefik.http.services.${CUSTOMER_SLUG}-api-svc.loadbalancer.server.port=8642"
 
   dashboard:
     image: hermes-agent
@@ -44,29 +89,20 @@ services:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
     command: ["dashboard", "--host", "0.0.0.0", "--port", "9119", "--no-open", "--insecure"]
-    # Self-contained Traefik labels for agent.aicmo.in with basic auth.
-    # Leave Coolify's "Domains for dashboard" field EMPTY — these labels
-    # define the router themselves to avoid conflicting with Coolify's
-    # auto-generated ones.
-    #
-    # NOTE on the htpasswd `$`: Coolify v4 passes label values through to
-    # Docker as-is without running docker-compose's `$$ → $` interpolation
-    # step, so we write single `$` here (NOT `$$`). If you ever run this
-    # compose via plain `docker compose up`, you'd need to double them.
-    # Regenerate the hash per-customer in M2's template.
     labels:
+      # Dashboard on CUSTOMER_DASHBOARD_HOST — Traefik basic-auth gated.
       - "traefik.enable=true"
-      - "traefik.http.middlewares.maven-self-auth.basicauth.users=maven-self:$2y$05$/Y9mC9Mdhiu7iAHz1NPvCORBe2dHnT.l.yjCXfi6osSy//3.ST4oa"
-      - "traefik.http.routers.maven-self-dashboard-http.entrypoints=http"
-      - "traefik.http.routers.maven-self-dashboard-http.rule=Host(`agent.aicmo.in`)"
-      - "traefik.http.routers.maven-self-dashboard-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.maven-self-dashboard-https.entrypoints=https"
-      - "traefik.http.routers.maven-self-dashboard-https.rule=Host(`agent.aicmo.in`)"
-      - "traefik.http.routers.maven-self-dashboard-https.tls=true"
-      - "traefik.http.routers.maven-self-dashboard-https.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.maven-self-dashboard-https.middlewares=gzip,maven-self-auth"
-      - "traefik.http.routers.maven-self-dashboard-https.service=maven-self-dashboard-svc"
-      - "traefik.http.services.maven-self-dashboard-svc.loadbalancer.server.port=9119"
+      - "traefik.http.middlewares.${CUSTOMER_SLUG}-auth.basicauth.users=${CUSTOMER_DASHBOARD_HTPASSWD}"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-http.entrypoints=http"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-http.rule=Host(`${CUSTOMER_DASHBOARD_HOST}`)"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.entrypoints=https"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.rule=Host(`${CUSTOMER_DASHBOARD_HOST}`)"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.tls=true"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.middlewares=gzip,${CUSTOMER_SLUG}-auth"
+      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.service=${CUSTOMER_SLUG}-dashboard-svc"
+      - "traefik.http.services.${CUSTOMER_SLUG}-dashboard-svc.loadbalancer.server.port=9119"
 
 volumes:
   hermes_data:
