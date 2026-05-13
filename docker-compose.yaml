@@ -70,17 +70,20 @@ services:
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
     command: ["gateway", "run"]
     labels:
-      # API server on CUSTOMER_API_HOST — bearer-token gated, no basic auth.
+      # API server on api.cust2.aicmo.in — bearer-token gated, no basic auth.
+      # Values are HARDCODED (not ${VAR}) because Coolify v4 escapes $ in
+      # compose label values, breaking interpolation. M3+ admin app will
+      # generate per-customer branches with literal values like this one.
       - "traefik.enable=true"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-api-http.entrypoints=http"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-api-http.rule=Host(`${CUSTOMER_API_HOST}`)"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-api-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.entrypoints=https"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.rule=Host(`${CUSTOMER_API_HOST}`)"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.tls=true"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-api-https.service=${CUSTOMER_SLUG}-api-svc"
-      - "traefik.http.services.${CUSTOMER_SLUG}-api-svc.loadbalancer.server.port=8642"
+      - "traefik.http.routers.cust2-api-http.entrypoints=http"
+      - "traefik.http.routers.cust2-api-http.rule=Host(`api.cust2.aicmo.in`)"
+      - "traefik.http.routers.cust2-api-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.cust2-api-https.entrypoints=https"
+      - "traefik.http.routers.cust2-api-https.rule=Host(`api.cust2.aicmo.in`)"
+      - "traefik.http.routers.cust2-api-https.tls=true"
+      - "traefik.http.routers.cust2-api-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.cust2-api-https.service=cust2-api-svc"
+      - "traefik.http.services.cust2-api-svc.loadbalancer.server.port=8642"
 
   dashboard:
     image: ghcr.io/naveends798/maven-hermes:latest
@@ -96,20 +99,16 @@ services:
       - HERMES_UID=${HERMES_UID:-10000}
       - HERMES_GID=${HERMES_GID:-10000}
     command: ["dashboard", "--host", "0.0.0.0", "--port", "9119", "--no-open", "--insecure"]
-    labels:
-      # Dashboard on CUSTOMER_DASHBOARD_HOST — Traefik basic-auth gated.
-      - "traefik.enable=true"
-      - "traefik.http.middlewares.${CUSTOMER_SLUG}-auth.basicauth.users=${CUSTOMER_DASHBOARD_HTPASSWD}"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-http.entrypoints=http"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-http.rule=Host(`${CUSTOMER_DASHBOARD_HOST}`)"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.entrypoints=https"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.rule=Host(`${CUSTOMER_DASHBOARD_HOST}`)"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.tls=true"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.middlewares=gzip,${CUSTOMER_SLUG}-auth"
-      - "traefik.http.routers.${CUSTOMER_SLUG}-dashboard-https.service=${CUSTOMER_SLUG}-dashboard-svc"
-      - "traefik.http.services.${CUSTOMER_SLUG}-dashboard-svc.loadbalancer.server.port=9119"
+    # Dashboard NOT publicly routed in this customer-cust2 branch.
+    # Reason: Coolify v4 corrupts $-containing values (bcrypt hashes) when
+    # passed through compose env-var interpolation. The htpasswd literal
+    # approach maven-self uses would work but means committing the bcrypt
+    # hash to the fork's public repo. Acceptable for maven-self (already
+    # in maven-main) but we'd rather not commit hashes per customer.
+    # Operator accesses cust2's dashboard via SSH tunnel if needed:
+    #   ssh -L 9119:<cust2-dashboard-container-ip>:9119 root@<vps>
+    # M2.6 followup: wire customer basic-auth via Coolify's "Custom Labels"
+    # panel (per-customer, not committed), or build admin-app middleware.
 
 volumes:
   hermes_data:
