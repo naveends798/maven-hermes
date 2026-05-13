@@ -1,0 +1,90 @@
+# COPY THIS FILE INTO YOUR FORK REPO at .github/workflows/upstream-sync.yml
+# (This file is stored here in the platform repo as a template — it lives in maven-hermes.)
+#
+# Required repo secrets/vars in the fork:
+#   secrets.PLATFORM_REPO_TOKEN  - PAT with repo scope on naveends798/lumina-platform
+#   vars.PLATFORM_REPO           - "naveends798/lumina-platform"
+#   vars.LUMINA_OPERATORS        - comma-separated reviewer usernames for conflict PRs
+
+name: Upstream sync
+on:
+  schedule: [{ cron: '0 9 * * 1' }]    # Monday 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/NousResearch/hermes-agent
+          git fetch upstream --tags
+
+      - name: Fast-forward main to upstream/main
+        id: ff
+        run: |
+          git config user.name "lumina-bot"
+          git config user.email "bot@supavoices.com"
+          if git merge --ff-only upstream/main; then
+            git push origin main --tags
+            echo "advanced=true" >> $GITHUB_OUTPUT
+          else
+            echo "advanced=false" >> $GITHUB_OUTPUT
+            echo "::warning::main is not fast-forwardable from upstream — manual intervention needed"
+            exit 1
+          fi
+
+      - name: Attempt merge into lumina-main
+        id: merge
+        run: |
+          git checkout lumina-main
+          if git merge main --no-edit; then
+            echo "conflict=false" >> $GITHUB_OUTPUT
+          else
+            echo "conflict=true" >> $GITHUB_OUTPUT
+            git merge --abort
+          fi
+
+      - name: Open PR on clean merge
+        if: steps.merge.outputs.conflict == 'false'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: sync/upstream-${{ github.run_id }}
+          base: lumina-main
+          title: "chore: sync upstream (auto)"
+          body: |
+            Automated weekly upstream sync.
+            Run ID: ${{ github.run_id }}
+            Hermes ref: HEAD of main after fast-forward.
+          labels: upstream-sync,auto-merge
+
+      - name: Open PR on conflict
+        if: steps.merge.outputs.conflict == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: sync/upstream-conflict-${{ github.run_id }}
+          base: lumina-main
+          title: ":warning: sync upstream — CONFLICTS"
+          body: |
+            Automated upstream sync hit merge conflicts.
+            Resolve locally, push, then merge by hand. Add a one-line note to COMPAT.md.
+          labels: upstream-sync,needs-manual-merge
+          reviewers: ${{ vars.LUMINA_OPERATORS }}
+
+      - name: Trigger platform image rebuild on clean merge
+        if: steps.merge.outputs.conflict == 'false'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PLATFORM_REPO_TOKEN }}
+          repository: ${{ vars.PLATFORM_REPO }}
+          event-type: hermes-upstream-synced
+          client-payload: |
+            { "hermes_ref": "main", "run_id": "${{ github.run_id }}" }
